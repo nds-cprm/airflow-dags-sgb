@@ -10,6 +10,8 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 from pendulum import datetime
 
+from sgb.geobank.utils import extract
+
 
 default_args = {
     "email":["carlos.mota@sgb.gov.br"],
@@ -35,6 +37,12 @@ with DAG (
         task_id=f"{dag.dag_id}_read_oracle",
         oracle_conn_id=dbms_src_id,
         sql="SELECT 1 FROM dual"
+    )
+
+    transform = PythonOperator(
+        task_id=f"{dag.dag_id}_transform",
+        python_callable=extract.get_st_geometry_tables,
+        op_args=[dbms_src_id]
     )
 
     write_postgres = PostgresOperator(
