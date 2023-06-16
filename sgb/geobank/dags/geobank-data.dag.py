@@ -16,12 +16,12 @@ default_args = {
     "email_on_failure": False
 }
 
-dbms_src_id = Variable.get("sgb_geobank_prod")
-dbms_dst_id = Variable.get("sgb_opendata_prod")
+dbms_src_id = Variable.get("sgb_geobank_db")
+dbms_dst_id = Variable.get("sgb_opendata_db")
 
 
 with DAG (
-    'p3m_etl', 
+    'geobank', 
     default_args = {
         "email":["carlos.mota@sgb.gov.br"],
         "email_on_failure": False
@@ -32,16 +32,16 @@ with DAG (
 ) as dag:
     
     read_oracle = OracleOperator(
-        task_id="geobank_read_oracle",
+        task_id=f"{dag.dag_id}_read_oracle",
         oracle_conn_id=dbms_src_id,
         sql="SELECT 1 FROM dual"
     )
 
     write_postgres = PostgresOperator(
-        task_id="geobank_write_postgres",
+        task_id=f"{dag.dag_id}_write_postgres",
         postgres_conn_id=dbms_dst_id,
-        sql="SELECT 1 FROM dual"
+        sql="SELECT 1"
     )
 
-    read_oracle >> write_postgres
+    read_oracle.set_downstream(write_postgres)
     
