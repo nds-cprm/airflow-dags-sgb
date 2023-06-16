@@ -1,0 +1,4 @@
+-- Exportar para WKB
+SELECT * FROM (
+	SELECT sde.st_asbinary(SHAPE) FROM LITOESTRATIGRAFIA.UE_LAYER_100000 
+) WHERE rownum <= 5
