@@ -26,7 +26,7 @@ with DAG (
         "email":["carlos.mota@sgb.gov.br"],
         "email_on_failure": False
     },
-    start_date = datetime(2023, 7, 1),
+    start_date = datetime(2023, 6, 1),
     schedule_interval = None, 
     catchup = False
 ) as dag:
