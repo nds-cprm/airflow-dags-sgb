@@ -51,5 +51,5 @@ with DAG (
         sql="SELECT 1"
     )
 
-    read_oracle.set_downstream(write_postgres)
+    read_oracle >> transform >> write_postgres
     
