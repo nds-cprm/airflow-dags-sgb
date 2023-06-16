@@ -42,4 +42,6 @@ with DAG (
         postgres_conn_id=dbms_dst_id,
         sql="SELECT 1 FROM dual"
     )
+
+    read_oracle >> write_postgres
     
