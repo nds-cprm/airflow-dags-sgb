@@ -20,6 +20,7 @@ default_args = {
 
 dbms_src_id = Variable.get("sgb_geobank_db")
 dbms_dst_id = Variable.get("sgb_opendata_db")
+fs_id = Variable.get("airflow_lake_fspath")
 
 
 with DAG (
@@ -42,7 +43,7 @@ with DAG (
     transform = PythonOperator(
         task_id=f"{dag.dag_id}_transform",
         python_callable=extract.get_st_geometry_tables,
-        op_args=[dbms_src_id]
+        op_args=[dbms_src_id, fs_id]
     )
 
     write_postgres = PostgresOperator(
