@@ -24,10 +24,10 @@ def get_st_geometry_tables(oracle_conn_id, **kwargs):
             OracleHook(oracle_conn_id).get_pandas_df(
                 "SELECT OWNER, TABLE_NAME, COLUMN_NAME, SRID, GEOMETRY_TYPE "
                 "FROM SDE.ALL_ST_GEOMETRY_COLUMNS_V WHERE TABLE_NAME LIKE '%LAYER%' "
-                "ORDER BY OWNER , TABLE_NAME"
+                "ORDER BY OWNER, TABLE_NAME"
             )
             .rename(
-                lambda col: col.lower()
+                columns=lambda col: col.lower()
             )
             .to_pickle(
                 pkl
