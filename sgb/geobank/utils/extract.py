@@ -1,18 +1,20 @@
-from os import environ, path, makedirs
+from os import path, makedirs
 
 from airflow.providers.oracle.operators.oracle import OracleHook
+from airflow.hooks.filesystem import FSHook
 # from airflow.providers.postgres.operators.postgres import PostgresHook
 
 
-def get_st_geometry_tables(oracle_conn_id, **kwargs):
+def get_st_geometry_tables(oracle_conn_id, filesystem_id, **kwargs):
     """
     """
     start = kwargs.get('dag_run').logical_date
+    #"airflow_lake_fspath"
 
     dest_path = path.join(
-        environ.get("AIRFLOW_HOME", "/tmp"), 
-        start.strftime("%Y/%m/%d"), 
-        "st_geometry_tables.pkl"
+        FSHook(filesystem_id).basepath, 
+        'geobank-ora2pgsql',
+        start.strftime("%Y/%m/%d")
     )
     
     makedirs(dest_path, exist_ok=True)
