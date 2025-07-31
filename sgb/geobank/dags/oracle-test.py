@@ -38,7 +38,7 @@ def extract_table(**kwargs):
 with DAG(
     dag_id=dag_id,
     start_date=datetime(2025, 7, 31),
-    schedule="@once",
+    schedule=None,
     catchup=False
 ) as dag:
     sde_version = PythonOperator(
