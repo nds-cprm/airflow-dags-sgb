@@ -2,47 +2,20 @@ import geopandas as gpd
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.providers.oracle.hooks.oracle import OracleHook
 from datetime import datetime
-from sqlalchemy import text
 
-
-# make oracledb work with sqlalchemy 1.4
-# https://stackoverflow.com/questions/74093231/nosuchmoduleerror-cant-load-plugin-sqlalchemy-dialectsoracle-oracledb
-import sys
-import oracledb
-oracledb.init_oracle_client() # força inicialização do sdk oracle (thin)
-oracledb.version = "8.3.0"
-sys.modules["cx_Oracle"] = oracledb
-
-class CustomOracleHook(OracleHook):
-    @property
-    def sqlalchemy_url(self):
-        conn = self.connection
-        return f"oracle://{conn.login}:{conn.password}@{conn.host}:{conn.port}/{conn.extra_dejson['service_name']}"
+from sgb.common.airflow.hooks.sde import SDEOracleHook
 
 
 # DAG
 dag_id = "test-oracle"
 
 def sde_version(**kwargs):
-    engine = CustomOracleHook(oracle_conn_id="geobank-producao").get_sqlalchemy_engine()
-  
-    with engine.connect() as conn:
-        _table = 'sde.sde_version'
-
-        if conn.dialect.name == 'oracle':
-            _table = 'sde.version'        
-
-        major, minor, bugfix = conn.execute(
-            text(f"SELECT major, minor, bugfix FROM {_table}")
-        ).fetchone()
-
-    return major, minor, bugfix
+    return SDEOracleHook(oracle_conn_id="geobank-producao").sde_version
 
 
 def extract_table(**kwargs):
-    engine = CustomOracleHook(oracle_conn_id="geobank-producao").get_sqlalchemy_engine()
+    engine = SDEOracleHook(oracle_conn_id="geobank-producao").get_sqlalchemy_engine()
     
     with engine.connect() as conn:
         sql = """SELECT objectid, id_unidade_estratigrafica, sigla, hierarquia, nome, ambiente_tectonico, sub_ambiente_tectonico, 
@@ -51,12 +24,7 @@ def extract_table(**kwargs):
               FROM litoestratigrafia.ue_layer_25000"""  
 
         geodata = (
-            gpd.read_postgis(
-                sql, 
-                conn,
-                geom_col = "geometry",
-                crs = 4326,  # EPSG:4326
-            )
+            gpd.read_postgis(sql, conn, geom_col="geometry", crs=4326)
             .rename(columns=lambda col: col.lower())
             .rename(columns={"objectid": "fid"})
             .set_index("fid")
