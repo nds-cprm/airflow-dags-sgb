@@ -2,11 +2,10 @@ from airflow import DAG
 from airflow.models import Variable
 
 from airflow.operators.python import PythonOperator
-from airflow.operators.python import BranchPythonOperator
-from airflow.operators.empty import EmptyOperator
+# from airflow.operators.python import BranchPythonOperator
+# from airflow.operators.empty import EmptyOperator
 
-from airflow.providers.oracle.operators.oracle import OracleOperator
-from airflow.providers.postgres.operators.postgres import PostgresOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 
 from pendulum import datetime
 
@@ -34,9 +33,9 @@ with DAG (
     catchup = False
 ) as dag:
     
-    read_oracle = OracleOperator(
+    read_oracle = SQLExecuteQueryOperator(
         task_id=f"{dag.dag_id}_read_oracle",
-        oracle_conn_id=dbms_src_id,
+        conn_id=dbms_src_id,
         sql="SELECT 1 FROM dual"
     )
 
@@ -46,9 +45,9 @@ with DAG (
         op_args=[dbms_src_id, fs_id]
     )
 
-    write_postgres = PostgresOperator(
+    write_postgres = SQLExecuteQueryOperator(
         task_id=f"{dag.dag_id}_write_postgres",
-        postgres_conn_id=dbms_dst_id,
+        conn_id=dbms_dst_id,
         sql="SELECT 1"
     )
 
