@@ -6,7 +6,7 @@ import oracledb
 from airflow.providers.oracle.hooks.oracle import OracleHook
 from airflow.exceptions import AirflowException
 from sqlalchemy import text, MetaData, Table, event
-from sqlalchemy.types import NullType
+from sqlalchemy.types import NullType, UserDefinedType
 from dataclasses import dataclass, field
 from typing import List, Optional, Mapping, Any
 
@@ -237,7 +237,8 @@ class SDEOracleHook(OracleHook):
         @event.listens_for(metadata, "column_reflect")
         def genericize_datatypes(inspector, tablename, column_dict):            
             # Verificar se é uma coluna de geometria ESRI
-            if type(column_dict["type"]) is NullType and column_dict["name"] == geometry_props.name:
+            if (type(column_dict["type"]) is NullType or type(column_dict["type"]) is UserDefinedType) \
+                    and column_dict["name"] == geometry_props.name:
                 column_dict["type"] = STGeometry(
                     geometry_props.get_ogc_sf_geometry_type(), 
                     srid=geometry_props.srid, 
@@ -271,7 +272,7 @@ class SDEOracleHook(OracleHook):
         crs,
         **kwargs
     ) -> GeoDataFrame:
-        with self.get_sqlalchemy_engine().raw_connection() as conn: # type: ignore
+        with self.get_sqlalchemy_engine().connect() as conn: # type: ignore
             return read_postgis(
                 sql, 
                 con=conn, 
