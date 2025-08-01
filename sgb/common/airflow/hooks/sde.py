@@ -8,6 +8,8 @@ from sqlalchemy import text
 from dataclasses import dataclass, field
 from typing import List
 
+from ...utils import str2bool
+
 # força inicialização do sdk oracle (thin)
 oracledb.init_oracle_client() # força inicialização do sdk oracle (thin)
 oracledb.version = "8.3.0"
@@ -123,18 +125,18 @@ class SDEOracleHook(OracleHook):
                         params
                     ).scalar(), # type: ignore
                     # If a table is not simple, it should not be edited outside ArcGIS.
-                    is_simple=conn.execute(
+                    is_simple=str2bool(conn.execute(
                         text("SELECT sde.gdb_util.is_simple(:schema, :table) FROM DUAL"),
                         params
-                    ).scalar(), # type: ignore
-                    is_versioned=conn.execute(
+                    ).scalar()), # type: ignore
+                    is_versioned=str2bool(conn.execute(
                         text("SELECT sde.gdb_util.IS_VERSIONED(:schema, :table) FROM DUAL"),
                         params
-                    ).scalar(), # type: ignore
-                    is_replicated=conn.execute(
+                    ).scalar()), # type: ignore
+                    is_replicated=str2bool(conn.execute(
                         text("SELECT sde.gdb_util.is_replicated(:schema, :table) FROM DUAL"),
                         params
-                    ).scalar() # type: ignore
+                    ).scalar()) # type: ignore
                 )
 
                 # geometries
