@@ -6,9 +6,7 @@ from sgb.common.airflow.hooks.sde import SDEOracleHook
 
 
 # DAG
-def dag_factory(schema, table):
-    dag_id = f"{schema}_{table}_etl"
-
+def dag_factory(dag_id, schema, table):
     def extract_table(_schema, _table, **kwargs):
         hook = SDEOracleHook(oracle_conn_id="geobank-producao")
         table = hook.get_reflected_table(_schema, _table)
@@ -50,6 +48,10 @@ selected_tables = {
     "recmin": ['rm_layer'],
 }
 
+
 for schema, tables in selected_tables.items():
     for table in tables:
-        dag_factory(schema, table)
+        dag_id = f"oracle_{schema}_{table}_etl"
+        globals().update({
+            dag_id: dag_factory(dag_id, schema, table)
+        })
