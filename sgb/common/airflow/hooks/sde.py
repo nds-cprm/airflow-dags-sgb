@@ -5,7 +5,8 @@ import oracledb
 
 from airflow.providers.oracle.hooks.oracle import OracleHook
 from sqlalchemy import text
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 
 # força inicialização do sdk oracle (thin)
 oracledb.init_oracle_client() # força inicialização do sdk oracle (thin)
@@ -49,7 +50,7 @@ class TableProps:
     is_simple: bool
     is_versioned: bool
     is_replicated: bool
-    geometry_columns: list[GeometryProps] = []
+    geometry_columns: List[GeometryProps] = field(default_factory=list)
 
     @property
     def verbose_name(self):
