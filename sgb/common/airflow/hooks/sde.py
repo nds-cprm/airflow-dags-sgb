@@ -5,12 +5,55 @@ import oracledb
 
 from airflow.providers.oracle.hooks.oracle import OracleHook
 from sqlalchemy import text
+from dataclasses import dataclass
 
 # força inicialização do sdk oracle (thin)
 oracledb.init_oracle_client() # força inicialização do sdk oracle (thin)
 oracledb.version = "8.3.0"
 sys.modules["cx_Oracle"] = oracledb
 
+
+@dataclass
+class GeometryProps:
+    name: str
+    srid: int
+    type: str
+    is_multi: bool
+    has_empty: bool
+    is_3d: bool
+    is_measured: bool
+    is_simple: bool
+
+    def get_ogc_sf_geometry_type(self):
+        """
+        Returns the geometry type in OGC Simple Features format.
+        """
+        _type = self.type.upper()
+        
+        if self.is_multi and not self.type == "GEOMETRYCOLLECTION":
+            _type =  "MULTI" + _type
+        
+        if self.is_3d:
+            _type += "Z"
+        
+        if self.is_measured:
+            _type += "M"
+        
+        return _type
+
+@dataclass
+class TableProps:
+    schema: str
+    table: str
+    pk: str
+    is_simple: bool
+    is_versioned: bool
+    is_replicated: bool
+    geometry_columns: list[GeometryProps] = []
+
+    @property
+    def verbose_name(self):
+        return f"{self.schema}.{self.table}"
 
 # Custom Oracle Hook to handle SDE version and connection
 class SDEOracleHook(OracleHook):
@@ -64,96 +107,90 @@ class SDEOracleHook(OracleHook):
         Returns the properties of a spatial table.
         """
         engine = self.get_sqlalchemy_engine()
-        table_props = {}
-        geometry_props = []
 
         if self.has_sde:
             with engine.connect() as conn:
                 params = {"table": table, "schema": schema}
+                verbose_table_name = f"{schema}.{table}"
 
-                # Primary key (RowID)
-                table_props['pk'] = conn.execute(
-                    text("SELECT sde.gdb_util.rowid_name(:schema, :table) FROM DUAL"),
-                    params
-                ).scalar()
-
-                # If a table is not simple, it should not be edited outside ArcGIS.
-                table_props['is_simple'] = conn.execute(
-                    text("SELECT sde.gdb_util.is_simple(:schema, :table) FROM DUAL"),
-                    params
-                ).scalar()
-
-                table_props['is_versioned'] = conn.execute(
-                    text("SELECT sde.gdb_util.IS_VERSIONED(:schema, :table) FROM DUAL"),
-                    params
-                ).scalar()
-
-                table_props['is_replicated'] = conn.execute(
-                    text("SELECT sde.gdb_util.is_replicated(:schema, :table) FROM DUAL"),
-                    params
-                ).scalar()
+                table_props = TableProps(
+                    schema=schema,
+                    table=table,
+                    # Primary key (RowID)
+                    pk=conn.execute(
+                        text("SELECT sde.gdb_util.rowid_name(:schema, :table) FROM DUAL"),
+                        params
+                    ).scalar(), # type: ignore
+                    # If a table is not simple, it should not be edited outside ArcGIS.
+                    is_simple=conn.execute(
+                        text("SELECT sde.gdb_util.is_simple(:schema, :table) FROM DUAL"),
+                        params
+                    ).scalar(), # type: ignore
+                    is_versioned=conn.execute(
+                        text("SELECT sde.gdb_util.IS_VERSIONED(:schema, :table) FROM DUAL"),
+                        params
+                    ).scalar(), # type: ignore
+                    is_replicated=conn.execute(
+                        text("SELECT sde.gdb_util.is_replicated(:schema, :table) FROM DUAL"),
+                        params
+                    ).scalar() # type: ignore
+                )
 
                 # geometries
                 geometries = [
-                    row[0] for row in conn.execute(
+                    row for row, in conn.execute(
                         text("SELECT sde.gdb_util.geometry_columns(:schema, :table) FROM DUAL"),
                         params
-                    ).fetchall()
+                    ).fetchall() # type: ignore
                 ]
-
-                verbose_table_name = f"{schema}.{table}"
-                geometry_prop = {}
                 
                 for geometry in geometries:
-                    # column_name
-                    geometry_prop["name"] = geometry 
-
-                    # SRID
-                    geometry_prop['srid'] = conn.execute(
-                        text(f"SELECT DISTINCT sde.st_srid({geometry}) FROM {verbose_table_name}")
-                    ).scalar()
+                    geom_prop = GeometryProps(
+                        # column_name
+                        name=geometry,
+                         # SRID
+                        srid=conn.execute(
+                            text(f"SELECT DISTINCT sde.st_srid({geometry}) FROM {verbose_table_name}")
+                        ).scalar(),  # type: ignore
+                        # Geometry type (Will be set later)
+                        type='GEOMETRYCOLLECTION', 
+                        # Is multipart
+                        is_multi=bool(conn.execute(
+                            text(f"SELECT max(sde.st_numgeometries({geometry})) FROM {verbose_table_name}")
+                        ).scalar() > 1), # type: ignore
+                        # Empty geometry
+                        has_empty=any([row for row, in conn.execute(
+                            text(f"SELECT DISTINCT sde.st_isempty({geometry}) FROM {verbose_table_name}")
+                        ).fetchall()]), # type: ignore
+                        # 3d
+                        is_3d=any([row for row, in conn.execute(
+                            text(f"SELECT DISTINCT sde.st_is3d({geometry}) FROM {verbose_table_name}")
+                        ).fetchall()]), # type: ignore
+                        # Is measured
+                        is_measured=any([row for row, in conn.execute(
+                            text(f"SELECT DISTINCT sde.st_ismeasured({geometry}) FROM {verbose_table_name}")
+                        ).fetchall()]),  # type: ignore
+                        # OGC Simple Features
+                        is_simple=all([row for row, in conn.execute(
+                            text(f"SELECT DISTINCT sde.st_issimple({geometry}) FROM {verbose_table_name}")
+                        ).fetchall()]) # type: ignore
+                    )
 
                     # Geometry type
-                    _type = [row[0] for row in conn.execute(
+                    _type = [row for row, in conn.execute(
                         text(f"SELECT DISTINCT replace(replace(upper(sde.st_geometrytype({geometry})), 'ST_', ''), 'MULTI', '') FROM {verbose_table_name}")
-                    ).fetchall()]
+                    ).fetchall()] # type: ignore
 
                     assert len(_type) > 0
 
-                    geometry_prop['type'] = _type[0] if len(_type) == 1 else 'GEOMETRYCOLLECTION'
+                    geom_prop.type = _type[0] if len(_type) == 1 else 'GEOMETRYCOLLECTION'
 
-                    # Simple or multipart
-                    geometry_prop['is_multi'] = bool(conn.execute(
-                        text(f"SELECT max(sde.st_numgeometries({geometry})) FROM {verbose_table_name}")
-                    ).scalar() > 1)
-
-                    # Empty geometry
-                    geometry_prop['has_empty'] = any([row[0] for row in conn.execute(
-                        text(f"SELECT DISTINCT sde.st_isempty({geometry}) FROM {verbose_table_name}")
-                    ).fetchall()])
-
-                    # 3d
-                    geometry_prop['is_3d'] = any([row[0] for row in conn.execute(
-                        text(f"SELECT DISTINCT sde.st_is3d({geometry}) FROM {verbose_table_name}")
-                    ).fetchall()])
-
-                    # Measured
-                    geometry_prop['is_measured'] = any([row[0] for row in conn.execute(
-                        text(f"SELECT DISTINCT sde.st_ismeasured({geometry}) FROM {verbose_table_name}")
-                    ).fetchall()])
-                    
-                    # OGC Simple Feature
-                    geometry_prop['is_simple'] = all([row[0] for row in conn.execute(
-                        text(f"SELECT DISTINCT sde.st_issimple({geometry}) FROM {verbose_table_name}")
-                    ).fetchall()])
-
-                    geometry_props.append(geometry_prop)
-
-            table_props["geometry_columns"] = geometry_props
+                    table_props.geometry_columns.append(geom_prop)
 
             # Atestar que só tenha uma coluna de geometria
             assert len(geometries) == 1
 
-
-        return table_props
-            
+            return table_props
+        
+        else:
+            raise ValueError("SDE is not available in this Oracle database.")    
