@@ -4,10 +4,13 @@ import sys
 import oracledb
 
 from airflow.providers.oracle.hooks.oracle import OracleHook
-from sqlalchemy import text
+from sqlalchemy import text, MetaData, Table, event
+from sqlalchemy.types import NullType
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
+
+from ...sqlalchemy.types import STGeometry
 from ...utils import str2bool
 
 # força inicialização do sdk oracle (thin)
@@ -60,7 +63,7 @@ class TableProps:
 
 # Custom Oracle Hook to handle SDE version and connection
 class SDEOracleHook(OracleHook):
-    def get_uri(self):
+    def get_uri(self) -> str:
         uri = super().get_uri()
 
         # Force excluding oracle driver from the URI (SQLAlchemy 1.4 compatibility)
@@ -72,7 +75,7 @@ class SDEOracleHook(OracleHook):
     _sde_version = None
 
     @property
-    def sde_version(self):
+    def sde_version(self) -> tuple[int, int, int]:
         if not self._sde_version:
             engine = self.get_sqlalchemy_engine()
 
@@ -96,7 +99,7 @@ class SDEOracleHook(OracleHook):
         return self._sde_version
 
     @property
-    def has_sde(self):
+    def has_sde(self) -> bool:
         sde_version = self.sde_version
 
         if sde_version is not None:
@@ -105,7 +108,11 @@ class SDEOracleHook(OracleHook):
         
         return False
     
-    def get_spatial_table_props(self, schema: str, table: str):
+    def get_spatial_table_props(
+            self, 
+            schema: str, 
+            table: str
+        ) -> TableProps:
         """
         Returns the properties of a spatial table.
         """
@@ -196,4 +203,53 @@ class SDEOracleHook(OracleHook):
             return table_props
         
         else:
-            raise ValueError("SDE is not available in this Oracle database.")    
+            raise ValueError("SDE is not available in this Oracle database.")
+    
+    def get_reflected_table(
+            self, 
+            schema: str, 
+            table: str, 
+            geometry_props: Optional[GeometryProps] = None
+        ) -> Table:
+        """
+        Returns the reflected table ORM.
+        """
+        engine = self.get_sqlalchemy_engine()
+        metadata = MetaData(schema=schema)
+
+        if not geometry_props:
+            # If no geometry properties are provided, fetch the table properties
+            table_props = self.get_spatial_table_props(schema, table)
+            geometry_props = table_props.geometry_columns[0]
+
+        # Event handler for reflecting columns, for replace vendor to generalized ones
+        @event.listens_for(metadata, "column_reflect")
+        def genericize_datatypes(inspector, tablename, column_dict):            
+            # Verificar se é uma coluna de geometria ESRI
+            if type(column_dict["type"]) is NullType and column_dict["name"] == geometry_props.name:
+                column_dict["type"] = STGeometry(
+                    geometry_props.get_ogc_sf_geometry_type(), 
+                    srid=geometry_props.srid, 
+                    spatial_index=False
+                )
+            # TODO: Checar Numeric com scale=0 e as_decimal=False: < 5 smallint 5 <= x <= 9, int; > 9 bigint
+            # elif:
+            else:
+                # Forçar o tipo genérico para intercâmbio de bancos de dados
+                column_dict["type"] = column_dict["type"].as_generic()
+                
+        # New reflected table, from source
+        self.log.info("Reflecting table %s.%s...", schema, table)        
+        table_obj = Table(
+            table, 
+            metadata, 
+            autoload_with=engine, 
+        )
+
+        # Ignore SRC indexes
+        table_obj.indexes = set() 
+        self.log.info("Indexes of %s.%s ignored.", schema, table)
+
+        return table_obj    
+
+        
