@@ -42,16 +42,18 @@ def dag_factory(dag_id, schema, table):
     return dag
 
 
-selected_tables = {
-    "litoestratigrafia": ['ue_layer_100000', 'ue_layer_250000', 'ue_layer_50000', 'ue_layer_1000000'],
-    "aflora": ['af_layer'],
-    "recmin": ['rm_layer'],
-}
+# selected_tables = {
+#     "litoestratigrafia": ['ue_layer_100000', 'ue_layer_250000', 'ue_layer_50000', 'ue_layer_1000000'],
+#     "aflora": ['af_layer'],
+#     "recmin": ['rm_layer'],
+# }
 
 
-for schema, tables in selected_tables.items():
-    for table in tables:
-        dag_id = f"oracle_{schema}_{table}_etl"
-        globals().update({
-            dag_id: dag_factory(dag_id, schema, table)
-        })
+# for schema, tables in selected_tables.items():
+#     for table in tables:
+#         dag_id = f"oracle_{schema}_{table}_etl"
+#         globals().update({
+#             dag_id: dag_factory(dag_id, schema, table)
+        # })
+
+dag = dag_factory("oracle-test", "litoestratigrafia", 'ue_layer_100000')
