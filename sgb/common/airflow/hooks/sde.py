@@ -4,10 +4,11 @@ import sys
 import oracledb
 
 from airflow.providers.oracle.hooks.oracle import OracleHook
+from airflow.exceptions import AirflowException
 from sqlalchemy import text, MetaData, Table, event
 from sqlalchemy.types import NullType
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional, Mapping, Any
 
 
 from ...sqlalchemy.types import STGeometry
@@ -17,6 +18,10 @@ from ...utils import str2bool
 oracledb.init_oracle_client() # força inicialização do sdk oracle (thin)
 oracledb.version = "8.3.0"
 sys.modules["cx_Oracle"] = oracledb
+
+
+if TYPE_CHECKING:
+    from geopandas import GeoDataFrame
 
 
 @dataclass
@@ -47,6 +52,7 @@ class GeometryProps:
         
         return _type
 
+
 @dataclass
 class TableProps:
     schema: str
@@ -61,6 +67,7 @@ class TableProps:
     def verbose_name(self):
         return f"{self.schema}.{self.table}"
 
+
 # Custom Oracle Hook to handle SDE version and connection
 class SDEOracleHook(OracleHook):
     def get_uri(self) -> str:
@@ -73,6 +80,7 @@ class SDEOracleHook(OracleHook):
         return uri
     
     _sde_version = None
+
 
     @property
     def sde_version(self) -> tuple[int, int, int]:
@@ -92,11 +100,12 @@ class SDEOracleHook(OracleHook):
 
                 except Exception as e:
                     self.log.exception("Failed to fetch SDE version: %s", e)
-                    raise e
+                    raise AirflowException(e)
 
             self._sde_version = major, minor, bugfix
 
         return self._sde_version
+
 
     @property
     def has_sde(self) -> bool:
@@ -108,6 +117,7 @@ class SDEOracleHook(OracleHook):
         
         return False
     
+
     def get_spatial_table_props(
             self, 
             schema: str, 
@@ -203,7 +213,8 @@ class SDEOracleHook(OracleHook):
             return table_props
         
         else:
-            raise ValueError("SDE is not available in this Oracle database.")
+            raise AirflowException("SDE is not available in this Oracle database.")
+        
     
     def get_reflected_table(
             self, 
@@ -251,5 +262,29 @@ class SDEOracleHook(OracleHook):
         self.log.info("Indexes of %s.%s ignored.", schema, table)
 
         return table_obj    
+    
 
+    def get_geopandas_df(
+        self, 
+        sql, 
+        geom_col,
+        crs,
+        **kwargs
+    ) -> GeoDataFrame:
+        try:
+            from geopandas import read_postgis
+        except ImportError:
+            raise AirflowException("Geopandas library not installed, run: pip install 'geopandas'.")
+
+        with self.get_sqlalchemy_engine().raw_connection() as conn: # type: ignore
+            return read_postgis(
+                sql, 
+                con=conn, 
+                geom_col=geom_col,
+                crs=crs,
+                **kwargs
+            ) # type: ignore
         
+
+    def get_geopandas_df_by_chunks(self, sql, parameters: list | tuple | Mapping[str, Any] | None = None, **kwargs):
+        pass
