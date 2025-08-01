@@ -8,8 +8,12 @@ from airflow.exceptions import AirflowException
 from sqlalchemy import text, MetaData, Table, event
 from sqlalchemy.types import NullType
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional, Mapping, Any
+from typing import List, Optional, Mapping, Any
 
+try:
+    from geopandas import GeoDataFrame, read_postgis
+except ImportError:
+    raise AirflowException("Geopandas library not installed, run: pip install geopandas.")
 
 from ...sqlalchemy.types import STGeometry
 from ...utils import str2bool
@@ -18,10 +22,6 @@ from ...utils import str2bool
 oracledb.init_oracle_client() # força inicialização do sdk oracle (thin)
 oracledb.version = "8.3.0"
 sys.modules["cx_Oracle"] = oracledb
-
-
-if TYPE_CHECKING:
-    from geopandas import GeoDataFrame
 
 
 @dataclass
@@ -271,11 +271,6 @@ class SDEOracleHook(OracleHook):
         crs,
         **kwargs
     ) -> GeoDataFrame:
-        try:
-            from geopandas import read_postgis
-        except ImportError:
-            raise AirflowException("Geopandas library not installed, run: pip install 'geopandas'.")
-
         with self.get_sqlalchemy_engine().raw_connection() as conn: # type: ignore
             return read_postgis(
                 sql, 
