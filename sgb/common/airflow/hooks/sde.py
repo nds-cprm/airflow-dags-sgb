@@ -5,10 +5,9 @@ import oracledb
 
 from airflow.providers.oracle.hooks.oracle import OracleHook
 from airflow.exceptions import AirflowException
-from sqlalchemy import text, MetaData, Table, event
-from sqlalchemy.types import NullType, UserDefinedType
+from sqlalchemy import text, MetaData, Table, event, PrimaryKeyConstraint
 from dataclasses import dataclass, field
-from typing import List, Optional, Mapping, Any
+from typing import List, Optional, Mapping, Any, Generator
 
 try:
     from geopandas import GeoDataFrame, read_postgis
@@ -220,7 +219,7 @@ class SDEOracleHook(OracleHook):
             self, 
             schema: str, 
             table: str, 
-            geometry_props: Optional[GeometryProps] = None
+            table_props: Optional[TableProps] = None
         ) -> Table:
         """
         Returns the reflected table ORM.
@@ -228,34 +227,43 @@ class SDEOracleHook(OracleHook):
         engine = self.get_sqlalchemy_engine()
         metadata = MetaData(schema=schema)
 
-        if not geometry_props:
+        if not table_props:
             # If no geometry properties are provided, fetch the table properties
             table_props = self.get_spatial_table_props(schema, table)
-            geometry_props = table_props.geometry_columns[0]
+        
+        # FIXME: Pegar a primeira geometria do table_props
+        geometry_props = table_props.geometry_columns[0]
 
         # Event handler for reflecting columns, for replace vendor to generalized ones
         @event.listens_for(metadata, "column_reflect")
-        def genericize_datatypes(inspector, tablename, column_dict):            
-            # Verificar se é uma coluna de geometria ESRI
-            if (type(column_dict["type"]) is NullType or type(column_dict["type"]) is UserDefinedType) \
-                    and column_dict["name"] == geometry_props.name:
+        def genericize_datatypes(inspector, tablename, column_dict): 
+            _name, _type = column_dict.get("name"), column_dict.get("type")
+              
+            # Verificar se é uma coluna de geometria ESRI            
+            if _name.lower() == geometry_props.name.lower():
                 column_dict["type"] = STGeometry(
                     geometry_props.get_ogc_sf_geometry_type(), 
                     srid=geometry_props.srid, 
                     spatial_index=False
                 )
             # TODO: Checar Numeric com scale=0 e as_decimal=False: < 5 smallint 5 <= x <= 9, int; > 9 bigint
-            # elif:
             else:
                 # Forçar o tipo genérico para intercâmbio de bancos de dados
-                column_dict["type"] = column_dict["type"].as_generic()
+                column_dict["type"] = _type.as_generic()            
                 
         # New reflected table, from source
-        self.log.info("Reflecting table %s.%s...", schema, table)        
+        self.log.info("Reflecting table %s.%s...", schema, table)      
+
         table_obj = Table(
             table, 
             metadata, 
             autoload_with=engine, 
+        )
+
+        # Primary key
+        table_obj.primary_key = PrimaryKeyConstraint(
+            table_obj.columns[table_props.pk.lower()], 
+            name=f"{table}_pk"
         )
 
         # Ignore SRC indexes
@@ -263,13 +271,14 @@ class SDEOracleHook(OracleHook):
         self.log.info("Indexes of %s.%s ignored.", schema, table)
 
         return table_obj    
-    
+
 
     def get_geopandas_df(
         self, 
         sql, 
         geom_col,
         crs,
+        parameters: list | tuple | Mapping[str, Any] | None = None,
         **kwargs
     ) -> GeoDataFrame:
         with self.get_sqlalchemy_engine().connect() as conn: # type: ignore
@@ -278,9 +287,27 @@ class SDEOracleHook(OracleHook):
                 con=conn, 
                 geom_col=geom_col,
                 crs=crs,
+                params=parameters,
                 **kwargs
             ) # type: ignore
-        
+            
 
-    def get_geopandas_df_by_chunks(self, sql, parameters: list | tuple | Mapping[str, Any] | None = None, **kwargs):
-        pass
+    def get_geopandas_df_by_chunks(
+        self, 
+        sql, 
+        geom_col,
+        crs,
+        chunksize: int,
+        parameters: list | tuple | Mapping[str, Any] | None = None,
+        **kwargs
+    ) -> Generator[GeoDataFrame, None, None]:
+        with self.get_sqlalchemy_engine().connect() as conn: # type: ignore
+            return read_postgis(
+                sql, 
+                con=conn, 
+                geom_col=geom_col,
+                crs=crs,
+                params=parameters,
+                chunksize=chunksize,
+                **kwargs
+            ) # type: ignore
