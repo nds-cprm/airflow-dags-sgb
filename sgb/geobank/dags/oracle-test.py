@@ -26,9 +26,12 @@ def dag_factory(dag_id, schema, table):
 
         out_file = f"/tmp/{_schema}_{_table}.parquet"
 
-        # concatena os DataFrames obtidos pelo iterador e salva em um arquivo Parquet
-        out_df = concat([df.set_index(table.columns['objectid'].name) for df in results]).to_parquet(out_file, index=True)
+        # concatena os DataFrames obtidos pelo iterador 
+        out_df = concat(results)
         logger.info(out_df.info())  # Log the DataFrame info for debugging
+
+        # E salva em um arquivo Parquet
+        out_df.to_parquet(out_file, index=True)
 
         return out_file
     
