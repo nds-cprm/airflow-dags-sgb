@@ -1,6 +1,11 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime
+from pandas import concat
 
 from sgb.common.airflow.hooks.sde import SDEOracleHook
 
@@ -19,10 +24,11 @@ def dag_factory(dag_id, schema, table):
             chunksize=5000
         )
 
-        out_file = "/tmp/ue_layer_100000.parquet"
-        
-        for df in results:
-            df.to_parquet(out_file, index=True)
+        out_file = f"/tmp/{_schema}_{_table}.parquet"
+
+        # concatena os DataFrames obtidos pelo iterador e salva em um arquivo Parquet
+        out_df = concat([df.set_index(table.columns['objectid'].name) for df in results]).to_parquet(out_file, index=True)
+        logger.info(out_df.info())  # Log the DataFrame info for debugging
 
         return out_file
     
